@@ -13,6 +13,8 @@ import sys
 import os
 import time
 import threading
+import json
+from pathlib import Path
 from enum import Enum
 from typing import List, Tuple
 import speech_recognition as sr
@@ -258,6 +260,8 @@ class CoachingPanel(Panel):
     def set_speaking(self, speaking: bool):
         self.speaking = speaking
         self.invalidate()
+
+    def _render_internal(self):
 
         self._surface.fill(Colors.BG_PANEL)
         title = Fonts.HEADER.render('🎓 Live Coach', True, Colors.ACCENT_PRIMARY)
@@ -555,6 +559,7 @@ class Dashboard:
         if hasattr(self.game, 'bird'):
             self.heatmap_panel.record_death(self.game.bird.x, self.game.bird.y, GAME_W, GAME_H)
         self.stats_panel.record_game(info['score'])
+        self._save_history(info['score'])
         feedback = self.coach.analyze_and_coach(score=info['score'])
         if self.llm_coach:
              try:
@@ -574,6 +579,32 @@ class Dashboard:
                 self.voice.speak(feedback.main_message)
         if feedback.specific_tips:
             self.chat_panel.add_message('💡 Tip: ' + feedback.specific_tips[0])
+
+    def _save_history(self, score: int):
+        try:
+            data_dir = Path(__file__).parent.parent / 'data'
+            data_dir.mkdir(exist_ok=True)
+            hist_file = data_dir / 'history.json'
+            
+            history = []
+            if hist_file.exists():
+                try:
+                    with open(hist_file, 'r') as f:
+                        history = json.load(f)
+                except:
+                    pass
+            
+            record = {
+                'timestamp': time.time(),
+                'score': score,
+                'mode': 'AI Coach' if self.enable_llm else 'Standard'
+            }
+            history.append(record)
+            
+            with open(hist_file, 'w') as f:
+                json.dump(history, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save history: {e}")
 
     def _render(self):
         self.screen.fill(Colors.BG_DARK)

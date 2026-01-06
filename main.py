@@ -27,15 +27,23 @@ def main():
             # Check for special modes
             if config.get("mode") == "watch_ai":
                 from game.modes import watch_ai
-                print("Starting Watch AI Mode...")
+                print("Starting RL Mode...")
                 watch_ai()
             elif config.get("mode") == "train_ai":
                 from game.modes import train_agent_mode
-                print("Starting Training Mode...")
+                print("Starting Learning Mode...")
                 train_agent_mode()
+            elif config.get("mode") == "scoreboard":
+                from ui.scoreboard import run_scoreboard
+                print("Showing Scoreboard...")
+                run_scoreboard()
+            elif config.get("mode") == "analysis":
+                from ui.analysis import run_analysis
+                print("Showing Analysis Mode...")
+                run_analysis()
             else:
-                # Dashboard Mode
-                print(f"Starting Dashboard with config: {config}")
+                # Dashboard Mode (AI Coach Combined)
+                print(f"Starting AI Coach with config: {config}")
                 run_dashboard(config)
         except Exception as e:
             print(f"Error launching mode: {e}")

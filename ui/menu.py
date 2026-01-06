@@ -28,34 +28,29 @@ class Menu:
         
         self.options = [
             {
-                "title": "Standard Dashboard",
-                "desc": "Original Game + Rule-Based Coach (Fastest)",
-                "config": {"enable_llm": False, "enable_vision": False}
-            },
-            {
-                "title": "Llama Mode (NLP)",
-                "desc": "Adds AI Chat & Conversational Coaching",
-                "config": {"enable_llm": True, "enable_vision": False}
-            },
-            {
-                "title": "Llava Mode (Vision)",
-                "desc": "Adds Visual Analysis of Gameplay",
-                "config": {"enable_llm": False, "enable_vision": True}
-            },
-            {
-                "title": "Ultimate Mode",
-                "desc": "All Features: Voice, Chat, Vision, & NLP",
+                "title": "AI Coach Combined Mode",
+                "desc": "Llama (NLP) + Llava (Vision) + gTTS (Voice)",
                 "config": {"enable_llm": True, "enable_vision": True}
             },
             {
-                "title": "Watch AI Play (RL)",
-                "desc": "Watch trained DQN agent play the game",
+                "title": "RL Mode",
+                "desc": "Watch AI Agent Play (Reinforcement Learning)",
                 "config": {"mode": "watch_ai"}
             },
             {
-                "title": "Train AI Agent",
-                "desc": "Train the RL agent (visual mode)",
+                "title": "Learning Mode",
+                "desc": "Train the AI Agent",
                 "config": {"mode": "train_ai"}
+            },
+            {
+                "title": "Scoreboard",
+                "desc": "View Top Scores",
+                "config": {"mode": "scoreboard"}
+            },
+            {
+                "title": "Analysis Mode",
+                "desc": "Historical, Present & Predictive Analysis",
+                "config": {"mode": "analysis"}
             }
         ]
         
