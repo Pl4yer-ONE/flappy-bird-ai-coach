@@ -1,0 +1,49 @@
+# DQN Hyperparameters Configuration
+
+# FlappyBird DQN Configuration
+flappybird:
+  env_id: FlappyBird-v0
+  
+  # Network Architecture
+  fc1_nodes: 512
+  
+  # Training Parameters
+  replay_memory_size: 100000
+  mini_batch_size: 32
+  learning_rate_a: 0.0001
+  discount_factor_g: 0.99
+  network_sync_rate: 10
+  
+  # Exploration
+  epsilon_init: 1.0
+  epsilon_decay: 0.99995
+  epsilon_min: 0.05
+  
+  # Control
+  stop_on_reward: 100000
+  save_interval: 500
+  
+  # DQN Variants
+  enable_double_dqn: true
+  enable_dueling_dqn: true
+  
+  # Environment Parameters
+  env_make_params:
+    use_lidar: false
+
+# CartPole Configuration (for testing)
+cartpole:
+  env_id: CartPole-v1
+  fc1_nodes: 128
+  replay_memory_size: 100000
+  mini_batch_size: 64
+  learning_rate_a: 0.001
+  discount_factor_g: 0.99
+  network_sync_rate: 100
+  epsilon_init: 1.0
+  epsilon_decay: 0.9995
+  epsilon_min: 0.01
+  stop_on_reward: 500
+  save_interval: 100
+  enable_double_dqn: false
+  enable_dueling_dqn: true
