@@ -551,12 +551,19 @@ class Dashboard:
                 else:
                     danger = 0
                 self.coaching_panel.set_danger_level(danger)
-                if danger > 0.7:
-                    self.coaching_panel.set_status('Danger', 'Watch out!')
+                
+                # Get intelligent live advice from AI Coach
+                state = self.game._get_full_state()
+                live_advice = self.coach.get_live_advice(state)
+                
+                if live_advice:
+                    self.coaching_panel.set_status('AI Coach', live_advice)
+                elif danger > 0.7:
+                    self.coaching_panel.set_status('Danger', '⚠️ Watch out!')
                 elif danger > 0.4:
-                    self.coaching_panel.set_status('Warning', 'Stay centered')
+                    self.coaching_panel.set_status('Warning', '⚖️ Stay centered')
                 else:
-                    self.coaching_panel.set_status('Good', '')
+                    self.coaching_panel.set_status('Good', '✅ Looking good!')
                 break
         # Voice input handling is separate thread
 

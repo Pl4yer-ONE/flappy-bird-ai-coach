@@ -185,6 +185,155 @@ class AICoach:
         if self.session_history:
             return self.session_history[-1]['feedback']
         return None
+    
+    # =========================================================================
+    # INTELLIGENT COACHING - Real-time predictive advice
+    # =========================================================================
+    
+    def get_live_advice(self, state: Dict[str, Any]) -> Optional[str]:
+        """
+        Get real-time coaching advice based on current game state.
+        
+        This is the SMART coach - predicts problems before they happen!
+        
+        Args:
+            state: Current game state with bird_y, bird_velocity, pipe info
+            
+        Returns:
+            Quick advice string or None if no advice needed
+        """
+        bird_y = state.get('bird_y', 256)
+        velocity = state.get('bird_velocity', 0)
+        dist_to_pipe = state.get('distance_to_next_pipe', 300)
+        gap_y = state.get('next_pipe_gap_y', 256)
+        
+        # Calculate optimal position
+        optimal_y = gap_y
+        y_diff = bird_y - optimal_y
+        
+        # Predictive warnings
+        if dist_to_pipe < 80:
+            # Close to pipe - critical zone
+            if abs(y_diff) > 40:
+                return "⚠️ Adjust NOW!" if y_diff > 0 else "⚠️ Flap NOW!"
+            elif velocity > 4:
+                return "🛑 Stop flapping - too fast!"
+            elif velocity < -4:
+                return "✋ Let gravity help"
+        
+        elif dist_to_pipe < 150:
+            # Approaching pipe - positioning zone
+            if y_diff > 50:
+                return "🔽 Too high - stop flapping"
+            elif y_diff < -50:
+                return "🔼 Too low - flap gently"
+            elif abs(velocity) > 3:
+                return "⚖️ Stabilize your height"
+        
+        elif dist_to_pipe < 250:
+            # Far from pipe - planning zone  
+            if abs(y_diff) > 80:
+                direction = "down" if y_diff > 0 else "up"
+                return f"📍 Start moving {direction} toward gap"
+        
+        # Top/bottom boundary warnings
+        if bird_y < 50:
+            return "🚫 Too close to ceiling!"
+        elif bird_y > 350:
+            return "🚫 Too close to ground!"
+        
+        return None
+    
+    def get_smart_tip(self, score: int, death_count: int) -> str:
+        """
+        Get context-aware coaching tip based on player performance.
+        
+        Args:
+            score: Current/last score
+            death_count: Number of deaths this session
+            
+        Returns:
+            Smart contextual tip
+        """
+        # Beginner tips (struggling players)
+        if death_count > 5 and score < 3:
+            tips = [
+                "💡 Focus on just passing ONE pipe. Small wins build confidence!",
+                "💡 Try tapping rhythmically: tap... wait... tap... wait...",
+                "💡 Watch the GAP, not the pipes. Aim for the center.",
+                "💡 Relax your grip. Tense players tap too frantically.",
+                "💡 The bird WANTS to fall. Use gravity - don't fight it!"
+            ]
+            return tips[death_count % len(tips)]
+        
+        # Intermediate tips (making progress)
+        elif score >= 3 and score < 10:
+            tips = [
+                "🌟 Great progress! Now work on smoother transitions.",
+                "🌟 You're getting it! Try to stay centered in gaps.",
+                "🌟 Nice! Predict the NEXT pipe while passing current one.",
+                "🌟 Good rhythm! Keep flaps gentle and consistent."
+            ]
+            return tips[score % len(tips)]
+        
+        # Advanced tips (skilled players)
+        elif score >= 10:
+            tips = [
+                "🏆 Expert mode! Focus on pixel-perfect gap centering.",
+                "🏆 Pro tip: The best players use FEWER flaps.",
+                "🏆 Master move: Start positioning 3+ pipes ahead.",
+                "🏆 Elite strategy: Maintain consistent altitude between pipes."
+            ]
+            return tips[score % len(tips)]
+        
+        # Default encouraging tip
+        return "🎮 Keep practicing! Every attempt makes you better."
+    
+    def analyze_play_style(self) -> Dict[str, Any]:
+        """
+        Analyze overall play style from session history.
+        
+        Returns:
+            Play style analysis with strengths and weaknesses
+        """
+        if len(self.session_history) < 3:
+            return {'status': 'Need more games for analysis'}
+        
+        breakdown = self.get_mistake_breakdown()
+        trend = self.get_improvement_trend()
+        
+        # Determine play style
+        total = sum(breakdown.values()) or 1
+        
+        style = "Balanced"
+        weakness = None
+        strength = None
+        
+        if breakdown.get('panic_behavior', 0) / total > 0.3:
+            style = "Reactive"
+            weakness = "Tends to panic near obstacles"
+            strength = "Quick reflexes, just need calming"
+        elif breakdown.get('overflapping', 0) / total > 0.3:
+            style = "Aggressive"
+            weakness = "Flaps too frequently"
+            strength = "High engagement, needs rhythm"
+        elif breakdown.get('late_reaction', 0) / total > 0.3:
+            style = "Cautious"
+            weakness = "Reacts too late to obstacles"
+            strength = "Patient approach, needs earlier action"
+        elif breakdown.get('poor_centering', 0) / total > 0.3:
+            style = "Imprecise"
+            weakness = "Positioning not centered"
+            strength = "Timing is good, needs accuracy"
+        
+        return {
+            'style': style,
+            'weakness': weakness,
+            'strength': strength,
+            'improving': trend.get('improving', False),
+            'score_trend': trend.get('score_improvement', 0),
+            'games_analyzed': len(self.session_history)
+        }
 
 
 # Convenience function
