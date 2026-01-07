@@ -433,41 +433,56 @@ class Dashboard:
             except Exception as e:
                 print(f"Chat init warning: {e} - using fallback responses")
         
-        # Vision Coach - DISABLED to prevent segfault
-        # The screenshot_capture or VisionCoach init conflicts with pygame
+        # Vision Coach - Enable with safe initialization
         self.vision_coach = None
-        # Uncomment below to re-enable vision (may cause crashes on some systems)
-        # if self.enable_vision and VisionCoach:
-        #     try:
-        #         print("Initializing Llava Vision Coach...")
-        #         self.vision_coach = VisionCoach()
-        #     except Exception as e:
-        #         print(f"Failed to init Vision: {e}")
+        if self.enable_vision and VisionCoach:
+            try:
+                print("🔍 Initializing LLaVA Vision Coach...")
+                self.vision_coach = VisionCoach()
+                if self.vision_coach.is_available():
+                    print("✅ Vision Coach (LLaVA) ready!")
+                else:
+                    print("⚠️ LLaVA not available, vision disabled")
+                    self.vision_coach = None
+            except Exception as e:
+                print(f"Vision init warning: {e}")
+                self.vision_coach = None
 
-        # Voice - DISABLED to prevent segfault from audio conflicts
-        # The voice coach uses pyttsx3/gTTS which conflicts with pygame audio
+        # Voice TTS - Enable with gTTS/pyttsx3 (threaded for safety)
         self.voice = None
-        # Uncomment below to re-enable voice (may cause crashes on some systems)
-        # try:
-        #     self.voice = get_voice_coach()
-        #     if self.voice and self.voice.is_available():
-        #         self.voice.on_speaking = self._on_voice_speaking
-        # except Exception as e:
-        #     print(f"Voice coach disabled due to error: {e}")
+        try:
+            self.voice = get_voice_coach()
+            if self.voice and self.voice.is_available():
+                self.voice.on_speaking = self._on_voice_speaking
+                print("🔊 Voice Coach (gTTS/pyttsx3) ready!")
+            else:
+                print("⚠️ Voice not available")
+                self.voice = None
+        except Exception as e:
+            print(f"Voice init warning: {e}")
+            self.voice = None
+            
         # Panels
         self._create_panels()
         for p in self.panels:
             p.invalidate()
             
-        # Initial greeting
-        mode_str = "Standard"
-        if self.enable_llm and self.enable_vision: mode_str = "Ultimate"
-        elif self.enable_llm: mode_str = "Llama (NLP)"
-        elif self.enable_vision: mode_str = "Llava (Vision)"
+        # Initial greeting with voice
+        mode_str = "Full AI"
+        features = []
+        if self.llm_coach: features.append("Chat")
+        if self.vision_coach: features.append("Vision")
+        if self.voice: features.append("Voice")
+        if hasattr(self, 'voice_input_active') and self.voice_input_active: features.append("STT")
         
-        self.chat_panel.add_message(f"Welcome to {mode_str} Mode!")
+        if features:
+            mode_str = " + ".join(features)
+        
+        self.chat_panel.add_message(f"🚀 {mode_str} Mode Active!")
         if self.llm_coach:
-            self.chat_panel.add_message("I am ready to chat!")
+            self.chat_panel.add_message("💬 Chat with me! Ask anything.")
+        if self.voice:
+            self.chat_panel.add_message("🔊 Voice feedback enabled!")
 
     def _create_panels(self):
         # Compute panel rectangles using dynamic right width to fit total window size
