@@ -567,9 +567,9 @@ class Dashboard:
                 with sr.Microphone() as source:
                     if self.recognizer:
                         # Reduced sensitivity: Higher threshold and dynamic adjustment
-                        self.recognizer.energy_threshold = 2000  # Start higher to ignore low noise
-                        self.recognizer.dynamic_energy_ratio = 1.5
-                        self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                        self.recognizer.energy_threshold = getattr(config, 'SPEECH_ENERGY_THRESHOLD', 3000)
+                        self.recognizer.dynamic_energy_ratio = getattr(config, 'SPEECH_DYNAMIC_RATIO', 2.0)
+                        self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
                         audio = self.recognizer.listen(source, timeout=config.SPEECH_TIMEOUT, phrase_time_limit=config.SPEECH_PHRASE_TIME_LIMIT)
                     else:
                          continue

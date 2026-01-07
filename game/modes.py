@@ -256,8 +256,8 @@ def train_agent_mode(episodes: int = 100, render: bool = True):
             next_state = _obs_to_state(obs)
             
             # Store transition and train
-            agent.store_transition(state, action, reward, next_state, done)
-            agent.update()
+            agent.store_transition(state, action, next_state, reward, done)
+            agent.optimize()
             
             state = next_state
             episode_reward += reward

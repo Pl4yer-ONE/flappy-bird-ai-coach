@@ -27,19 +27,19 @@ SCREEN_WIDTH = 288
 SCREEN_HEIGHT = 512
 FPS = 60
 
-# Bird Physics
-GRAVITY = 0.5
-FLAP_STRENGTH = -9
-BIRD_MAX_VELOCITY = 10
+# Bird Physics (Low sensitivity - relaxed gameplay)
+GRAVITY = 0.18              # Very gentle falling
+FLAP_STRENGTH = -5          # Soft gentle jumps
+BIRD_MAX_VELOCITY = 5       # Smooth movement
 BIRD_START_X = 50
 BIRD_START_Y = SCREEN_HEIGHT // 2
 BIRD_RADIUS = 12
 
-# Pipe Settings
+# Pipe Settings (Low sensitivity - easier gameplay)
 PIPE_WIDTH = 52
-PIPE_GAP = 100  # Gap between upper and lower pipes
-PIPE_SPAWN_DISTANCE = 200  # Horizontal distance between pipes
-PIPE_VELOCITY = 3  # Pixels per frame
+PIPE_GAP = 140              # Wide gaps for easy passing
+PIPE_SPAWN_DISTANCE = 250   # More spacing between pipes
+PIPE_VELOCITY = 1.5         # Slow relaxed pace
 PIPE_MIN_HEIGHT = 50
 PIPE_MAX_HEIGHT = SCREEN_HEIGHT - PIPE_GAP - 50 - 112  # Account for ground
 
@@ -176,9 +176,11 @@ DASHBOARD_CENTER_PANEL_WIDTH = 500
 DASHBOARD_RIGHT_PANEL_WIDTH = 380
 DASHBOARD_PANEL_GAP = 12
 
-# Speech Recognition Settings
-SPEECH_TIMEOUT = 5  # seconds to wait for speech
-SPEECH_PHRASE_TIME_LIMIT = 10  # max phrase length
+# Speech Recognition Settings (Tuned for lower sensitivity)
+SPEECH_TIMEOUT = 5              # seconds to wait for speech
+SPEECH_PHRASE_TIME_LIMIT = 10   # max phrase length
+SPEECH_ENERGY_THRESHOLD = 3000  # Higher = less sensitive to noise
+SPEECH_DYNAMIC_RATIO = 2.0      # Dynamic adjustment ratio
 
 # =============================================================================
 # Reward Function

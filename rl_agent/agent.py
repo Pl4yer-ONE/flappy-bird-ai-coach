@@ -216,6 +216,8 @@ class DQNAgent:
         loss = self.loss_fn(current_q, target_q)
         self.optimizer.zero_grad()
         loss.backward()
+        # Gradient clipping for training stability
+        torch.nn.utils.clip_grad_norm_(self.policy_dqn.parameters(), max_norm=10)
         self.optimizer.step()
         
         # Decay epsilon
