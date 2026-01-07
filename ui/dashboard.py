@@ -185,7 +185,7 @@ class ChatPanel(Panel):
                     self.add_message(user_msg, True)
                     self.input_text = ''
                     
-                    # Use LLM for response if available
+                    # Always respond - use LLM if available, otherwise smart fallback
                     if self.llm_coach:
                         self.is_thinking = True
                         self.invalidate()
@@ -195,11 +195,13 @@ class ChatPanel(Panel):
                             if self.voice_coach and self.voice_coach.is_available():
                                 self.voice_coach.speak(response)
                         except Exception as e:
-                            self.add_message(f"Sorry, I couldn't respond: {str(e)[:50]}")
+                            # Fallback responses
+                            self.add_message(self._get_local_response(user_msg))
                         finally:
                             self.is_thinking = False
                     else:
-                        self.add_message('AI Coach is not available. Enable LLM mode!')
+                        # Local fallback response
+                        self.add_message(self._get_local_response(user_msg))
                     self.invalidate()
                 return True
             elif event.key == pygame.K_BACKSPACE:
@@ -211,6 +213,23 @@ class ChatPanel(Panel):
                 self.invalidate()
                 return True
         return False
+    
+    def _get_local_response(self, msg: str) -> str:
+        """Get local fallback response when LLM unavailable."""
+        msg_lower = msg.lower()
+        
+        if any(w in msg_lower for w in ['how', 'improve', 'better', 'tip', 'help']):
+            return "💡 Focus on timing! Watch the gap center and flap rhythmically. Stay calm!"
+        elif any(w in msg_lower for w in ['why', 'die', 'crash', 'hit', 'fail']):
+            return "🎯 Most deaths come from poor positioning. Aim for the middle of each gap."
+        elif any(w in msg_lower for w in ['good', 'best', 'pro', 'expert']):
+            return "🏆 Pro tip: The best players use fewer flaps. Quality over quantity!"
+        elif any(w in msg_lower for w in ['hi', 'hello', 'hey']):
+            return "👋 Hey! I'm your AI coach. Ask me anything about improving your gameplay!"
+        elif any(w in msg_lower for w in ['thank', 'thanks']):
+            return "😊 You're welcome! Keep practicing - you're getting better!"
+        else:
+            return "🎮 Keep practicing! Focus on staying calm and timing your flaps consistently."
 
 class GamePanel(Panel):
     def __init__(self, rect: pygame.Rect):
@@ -401,17 +420,18 @@ class Dashboard:
         # Coach
         self.coach = AICoach()
         
-        # LLM Coach
+        # LLM Coach - ALWAYS initialize for chat (it has built-in fallbacks)
         self.llm_coach = None
-        if self.enable_llm and CoachLLM:
+        if CoachLLM:
             try:
-                print("Initializing Llama Coach...")
+                print("Initializing AI Coach Chat...")
                 self.llm_coach = CoachLLM()
-                if not self.llm_coach.is_available():
-                     print("Llama not available, disabling.")
-                     self.llm_coach = None
+                if self.llm_coach.is_available():
+                    print("✅ LLM available for chat!")
+                else:
+                    print("⚠️ LLM not available, using smart fallback responses")
             except Exception as e:
-                print(f"Failed to init LLM: {e}")
+                print(f"Chat init warning: {e} - using fallback responses")
         
         # Vision Coach - DISABLED to prevent segfault
         # The screenshot_capture or VisionCoach init conflicts with pygame
