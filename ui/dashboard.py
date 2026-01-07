@@ -146,6 +146,7 @@ class ChatPanel(Panel):
         self._surface.fill(Colors.BG_PANEL)
         title = Fonts.HEADER.render('💬 AI Coach Chat', True, Colors.ACCENT_PRIMARY)
         self._surface.blit(title, (20, 15))
+        
         # Message area
         msg_y = 55
         max_h = self.rect.height - 130 
@@ -157,15 +158,32 @@ class ChatPanel(Panel):
                 surf = font.render(line, True, color)
                 self._surface.blit(surf, (20, msg_y + max_h - surf.get_height()))
                 max_h -= surf.get_height() + 6
+                
         # Input box
         input_rect = pygame.Rect(20, self.rect.height - 60, self.rect.width - 40, 40)
-        pygame.draw.rect(self._surface, Colors.BG_LIGHTER, input_rect, border_radius=8)
-        pygame.draw.rect(self._surface, Colors.BORDER, input_rect, 1, border_radius=8)
+        
+        # Visual focus indication: Accent border + background tint
+        border_color = Colors.ACCENT_PRIMARY if self.focused else Colors.BORDER
+        bg_color = (40, 42, 60) if self.focused else Colors.BG_LIGHTER
+        
+        pygame.draw.rect(self._surface, bg_color, input_rect, border_radius=8)
+        pygame.draw.rect(self._surface, border_color, input_rect, 2 if self.focused else 1, border_radius=8)
+        
         placeholder = 'Type a message...' if not self.input_text else self.input_text
-        txt_surf = Fonts.SMALL.render(placeholder, True, Colors.TEXT_MUTED if not self.input_text else Colors.TEXT_WHITE)
+        txt_color = Colors.TEXT_MUTED if not self.input_text else Colors.TEXT_WHITE
+        
+        # Show blinking cursor if focused
+        display_text = placeholder
+        if self.focused and self.input_text:
+            if time.time() % 1.0 < 0.5:
+                display_text += "|"
+                
+        txt_surf = Fonts.SMALL.render(display_text, True, txt_color)
+        
         # Vertically center text in input box
         text_y = input_rect.y + (input_rect.height - txt_surf.get_height()) // 2
         self._surface.blit(txt_surf, (input_rect.x + 12, text_y))
+        
         if self.speaking:
             pygame.draw.circle(self._surface, Colors.ACCENT_DANGER, (self.rect.width - 25, 25), 6)
 
@@ -173,11 +191,15 @@ class ChatPanel(Panel):
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos):
                 rel = (event.pos[0] - self.rect.x, event.pos[1] - self.rect.y)
-                if pygame.Rect(15, self.rect.height - 55, self.rect.width - 30, 40).collidepoint(rel):
+                # Much larger click area for focus (bottom 80px)
+                if rel[1] > self.rect.height - 80:
                     self.focused = True
+                    # Start inputs with empty string if it was placeholder
                 else:
                     self.focused = False
+                self.invalidate()
                 return True
+        # Keep focus until clicked elsewhere
         if self.focused and event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
                 if self.input_text.strip():
