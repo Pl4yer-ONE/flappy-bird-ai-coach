@@ -1,8 +1,9 @@
-# Coach LLM - Natural Language Coaching with Llama
+# Coach LLM - Natural Language Coaching with Multiple LLM Providers
 
 """
 LLM-powered coaching that generates natural language feedback.
-Uses Llama for intelligent, context-aware coaching advice.
+Supports multiple providers: Ollama (local), Groq, HuggingFace.
+Falls back gracefully when no LLM is available.
 """
 
 import sys
@@ -11,7 +12,15 @@ from typing import Optional, List, Dict, Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import SYSTEM_PROMPT, LLAMA_MODEL, LLM_MAX_TOKENS
-from llm.ollama_client import get_client, OllamaClient
+
+# Try universal client first, fall back to ollama
+try:
+    from llm.universal_client import get_universal_client, UniversalLLMClient
+    USE_UNIVERSAL = True
+except ImportError:
+    from llm.ollama_client import get_client, OllamaClient
+    USE_UNIVERSAL = False
+
 from coach.ai_coach import AICoach
 from coach.feedback_generator import CoachingFeedback
 
@@ -34,18 +43,29 @@ class CoachLLM:
         Initialize LLM coach.
         
         Args:
-            model: Ollama model name (default: llama3.2)
+            model: Model name (default: llama3.2)
         """
         self.model = model
-        self.client = get_client()
+        
+        # Use universal client for multi-provider support
+        if USE_UNIVERSAL:
+            self.client = get_universal_client()
+        else:
+            self.client = get_client()
+            
         self.base_coach = AICoach()
         self.chat_history: List[Dict[str, str]] = []
         self._available = None
         
+        # Log provider info
+        if USE_UNIVERSAL and hasattr(self.client, 'get_provider_info'):
+            info = self.client.get_provider_info()
+            print(f"🤖 LLM Coach: {info.get('name', 'unknown')} - {info.get('model', 'unknown')}")
+        
     def is_available(self) -> bool:
         """Check if LLM is available."""
         if self._available is None:
-            self._available = self.client.is_available() and self.client.has_model(self.model)
+            self._available = self.client.is_available()
         return self._available
         
     def enhance_feedback(self, feedback: CoachingFeedback, 
