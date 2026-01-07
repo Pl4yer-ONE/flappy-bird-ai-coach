@@ -38,12 +38,13 @@ def watch_ai():
     
     # Try to load pre-trained model
     model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'flappybird.pt')
-    state_dim = 6
     action_dim = 2
+    state_dim = 6  # Default, will be auto-detected from model
     
     if os.path.exists(model_path):
-        agent.load_model(model_path, state_dim=state_dim, action_dim=action_dim)
-        print(f"Loaded model from {model_path}")
+        agent.load_model(model_path)  # Let agent auto-detect state_dim
+        state_dim = getattr(agent, '_model_state_dim', 6)  # Get detected dim
+        print(f"Loaded model from {model_path} (state_dim={state_dim})")
         model_status = "✓ Model loaded"
     else:
         print("No pre-trained model found. Agent will use random actions.")
@@ -67,7 +68,7 @@ def watch_ai():
         
         # Reset game
         obs = game.reset()
-        state = _obs_to_state(obs)
+        state = _obs_to_state(obs, target_dim=state_dim)
         done = False
         current_score = 0
         
@@ -93,7 +94,7 @@ def watch_ai():
             
             # Step game
             obs, reward, done, _, info = game.step(action)
-            state = _obs_to_state(obs)
+            state = _obs_to_state(obs, target_dim=state_dim)
             current_score = info['score']
             
             if current_score > best_score:
@@ -156,10 +157,15 @@ def watch_ai():
     return return_to_menu
 
 
-def _obs_to_state(obs):
-    """Convert observation dict to state list for agent."""
+def _obs_to_state(obs, target_dim: int = 6):
+    """Convert observation dict to state list for agent.
+    
+    Args:
+        obs: Observation from game engine  
+        target_dim: Target dimension for state array (pad with zeros if needed)
+    """
     if isinstance(obs, dict):
-        return [
+        state = [
             obs.get('bird_y', 0) / SCREEN_HEIGHT,
             obs.get('bird_velocity', 0) / 10.0,
             obs.get('distance_to_next_pipe', 0) / SCREEN_WIDTH,
@@ -167,7 +173,14 @@ def _obs_to_state(obs):
             obs.get('next_pipe_upper_height', 0) / SCREEN_HEIGHT,
             obs.get('next_pipe_lower_top', 0) / SCREEN_HEIGHT
         ]
-    return list(obs)
+    else:
+        state = list(obs)
+    
+    # Pad with zeros if target dimension is larger
+    while len(state) < target_dim:
+        state.append(0.0)
+    
+    return state
 
 
 def train_agent_mode(episodes: int = 100, render: bool = True):

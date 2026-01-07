@@ -362,13 +362,19 @@ class DQNAgent:
         
         Args:
             path: Path to model file
-            state_dim: State dimension (needed if networks not initialized)
+            state_dim: State dimension (will be auto-detected from model if possible)
             action_dim: Action dimension
         """
         path = path or self.model_file
         
         # Load state dict to check architecture
-        state_dict = torch.load(path, map_location=device)
+        state_dict = torch.load(path, map_location=device, weights_only=True)
+        
+        # Auto-detect state dimension from fc1 layer weight shape
+        if 'fc1.weight' in state_dict:
+            detected_state_dim = state_dict['fc1.weight'].shape[1]
+            print(f"Auto-detected state dimension: {detected_state_dim}")
+            state_dim = detected_state_dim
         
         # Detect architecture from state dict keys
         has_dueling = 'fc_value.weight' in state_dict or 'value.weight' in state_dict
@@ -381,6 +387,9 @@ class DQNAgent:
         elif has_dueling:
             print("Detected dueling DQN architecture in saved model")
             self.enable_dueling_dqn = True
+        
+        # Store detected state dim for padding
+        self._model_state_dim = state_dim
             
         if self.policy_dqn is None:
             self.initialize_networks(state_dim, action_dim)
