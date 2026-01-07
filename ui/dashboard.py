@@ -550,17 +550,23 @@ class Dashboard:
                 if ev.key == pygame.K_ESCAPE:
                     self.return_to_menu = True  # Return to menu instead of just closing
                     self.running = False
-                elif ev.key == pygame.K_SPACE:
-                    # Ctrl+Space toggles voice input
-                    if pygame.key.get_mods() & pygame.KMOD_CTRL:
-                        self.voice_input_active = not self.voice_input_active
-                        print(f'Voice input toggled: {self.voice_input_active}')
-                    else:
-                        if self.state in (DashboardState.IDLE, DashboardState.GAME_OVER):
-                            self._start_game()
-            for p in self.panels:
-                if p.handle_event(ev):
-                    break
+                
+                # Let panels handle events first if focused (like Chat)
+                captured = False
+                for p in self.panels:
+                    if p.handle_event(ev):
+                        captured = True
+                        break
+                
+                if not captured:
+                    if ev.key == pygame.K_SPACE:
+                        # Ctrl+Space toggles voice input
+                        if pygame.key.get_mods() & pygame.KMOD_CTRL:
+                            self.voice_input_active = not self.voice_input_active
+                            print(f'Voice input toggled: {self.voice_input_active}')
+                        else:
+                            if self.state in (DashboardState.IDLE, DashboardState.GAME_OVER):
+                                self._start_game()
 
     def _start_game(self):
         self.game.reset()
@@ -571,8 +577,12 @@ class Dashboard:
 
     def _update(self, dt: float):
         if self.state == DashboardState.PLAYING:
-            keys = pygame.key.get_pressed()
-            action = 1 if keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w] else 0
+            # Only process game input if chat is NOT focused
+            action = 0
+            if not self.chat_panel.focused:
+                keys = pygame.key.get_pressed()
+                action = 1 if keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w] else 0
+            
             self.coach.record_state(self.game._get_full_state())
             obs, reward, done, _, info = self.game.step(action)
             self.game_panel.update_score(info['score'], self.game_panel.best_score)
