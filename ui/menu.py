@@ -97,13 +97,17 @@ class Menu:
         def check():
             try:
                 from llm.ollama_client import get_client
+                from config import LLAMA_MODEL, LLAVA_MODEL
+                
                 client = get_client()
                 if client.is_available():
-                    if client.has_model("llama3"):
+                    # Flexible check: exact match OR substring
+                    if client.has_model(LLAMA_MODEL) or client.has_model("llama"):
                         self.llm_status = "✓ Ready"
                     else:
                         self.llm_status = "⚠ Model missing"
-                    if client.has_model("llava"):
+                        
+                    if client.has_model(LLAVA_MODEL) or client.has_model("llava"):
                         self.vision_status = "✓ Ready"
                     else:
                         self.vision_status = "⚠ Model missing"
