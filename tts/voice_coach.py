@@ -34,15 +34,14 @@ class VoiceCoach:
         self._worker_thread = None
         self._stop_flag = False
         
-        # Check available TTS engines
+        # Check available TTS engines (but don't initialize yet - lazy init)
         self._gtts_available = self._check_gtts()
         self._pyttsx3_available = self._check_pyttsx3()
         self._pygame_mixer_available = self._check_pygame_mixer()
         
-        # Initialize pyttsx3 engine if available
+        # pyttsx3 engine will be initialized lazily on first use
         self._pyttsx3_engine = None
-        if self._pyttsx3_available:
-            self._init_pyttsx3()
+        self._pyttsx3_initialized = False
             
         # Start worker thread
         self._start_worker()
@@ -176,8 +175,13 @@ class VoiceCoach:
             return False
             
     def _speak_pyttsx3(self, text: str):
-        """Speak using pyttsx3."""
+        """Speak using pyttsx3 (lazy initialization)."""
         try:
+            # Lazy init pyttsx3 on first use
+            if not self._pyttsx3_initialized and self._pyttsx3_available:
+                self._init_pyttsx3()
+                self._pyttsx3_initialized = True
+            
             if self._pyttsx3_engine:
                 self._pyttsx3_engine.say(text)
                 self._pyttsx3_engine.runAndWait()

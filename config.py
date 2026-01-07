@@ -102,8 +102,8 @@ STATE_HISTORY_LENGTH = 30  # Frames to analyze after death
 # LLM Settings (Ollama / Llama)
 # =============================================================================
 OLLAMA_BASE_URL = "http://localhost:11434"
-LLAMA_MODEL = "llama3.2"
-LLAVA_MODEL = "llava"
+LLAMA_MODEL = "llama3:latest"
+LLAVA_MODEL = "llava:latest"
 LLM_TIMEOUT = 30  # seconds
 LLM_MAX_TOKENS = 256
 
@@ -129,7 +129,7 @@ VOICE_VOLUME = 0.9
 
 # =============================================================================
 # UI Settings
-VOICE_INPUT_ENABLED = True
+VOICE_INPUT_ENABLED = False  # Disabled by default to prevent crashes
 # =============================================================================
 # Menu
 MENU_BG_COLOR = (30, 30, 50)

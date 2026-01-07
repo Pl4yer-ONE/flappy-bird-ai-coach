@@ -124,12 +124,15 @@ class Panel:
 # Specific panels
 # ---------------------------------------------------------------------------
 class ChatPanel(Panel):
-    def __init__(self, rect: pygame.Rect):
+    def __init__(self, rect: pygame.Rect, llm_coach=None, voice_coach=None):
         super().__init__(rect)
         self.messages: List[Tuple[str, bool]] = []  # (text, is_user)
         self.input_text = ''
         self.focused = False
         self.speaking = False
+        self.llm_coach = llm_coach
+        self.voice_coach = voice_coach
+        self.is_thinking = False
 
     def add_message(self, text: str, is_user: bool = False):
         self.messages.append((text, is_user))
@@ -178,9 +181,25 @@ class ChatPanel(Panel):
         if self.focused and event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
                 if self.input_text.strip():
-                    self.add_message(self.input_text, True)
-                    self.add_message('I heard you: ' + self.input_text)
+                    user_msg = self.input_text
+                    self.add_message(user_msg, True)
                     self.input_text = ''
+                    
+                    # Use LLM for response if available
+                    if self.llm_coach:
+                        self.is_thinking = True
+                        self.invalidate()
+                        try:
+                            response = self.llm_coach.chat(user_msg)
+                            self.add_message(response)
+                            if self.voice_coach and self.voice_coach.is_available():
+                                self.voice_coach.speak(response)
+                        except Exception as e:
+                            self.add_message(f"Sorry, I couldn't respond: {str(e)[:50]}")
+                        finally:
+                            self.is_thinking = False
+                    else:
+                        self.add_message('AI Coach is not available. Enable LLM mode!')
                     self.invalidate()
                 return True
             elif event.key == pygame.K_BACKSPACE:
@@ -332,14 +351,18 @@ class StatsPanel(Panel):
         if len(self.scores) > 1:
             chart_rect = pygame.Rect(20, 120, self.rect.width - 40, self.rect.height - 140)
             pygame.draw.rect(self._surface, Colors.BG_LIGHTER, chart_rect, border_radius=4)
-            if max_score > 0:
-                for idx, sc in enumerate(self.scores[-20:]):
-                    x = chart_rect.x + int(idx * chart_rect.width / 19)
+            recent_scores = self.scores[-20:]
+            max_score = max(recent_scores) if recent_scores else 1
+            num_scores = len(recent_scores)
+            if max_score > 0 and num_scores > 0:
+                x_step = chart_rect.width / max(num_scores - 1, 1)
+                for idx, sc in enumerate(recent_scores):
+                    x = chart_rect.x + int(idx * x_step)
                     y = chart_rect.y + chart_rect.height - int(sc / max_score * chart_rect.height)
                     pygame.draw.circle(self._surface, Colors.ACCENT_PRIMARY, (x, y), 3)
                     if idx > 0:
-                        prev_x = chart_rect.x + int((idx - 1) * chart_rect.width / 19)
-                        prev_y = chart_rect.y + chart_rect.height - int(self.scores[-20 + idx - 1] / max_score * chart_rect.height)
+                        prev_x = chart_rect.x + int((idx - 1) * x_step)
+                        prev_y = chart_rect.y + chart_rect.height - int(recent_scores[idx - 1] / max_score * chart_rect.height)
                         pygame.draw.line(self._surface, Colors.ACCENT_PRIMARY, (prev_x, prev_y), (x, y), 2)
 
 # ---------------------------------------------------------------------------
@@ -358,14 +381,20 @@ class Dashboard:
         pygame.display.set_caption('Flappy Bird AI Coach - Dashboard')
         self.clock = pygame.time.Clock()
         self.running = True
+        self.return_to_menu = False  # Flag to indicate return to menu
         self.state = DashboardState.IDLE
         # Voice input flag
-        self.voice_input_active = True if getattr(__import__('config'), 'VOICE_INPUT_ENABLED', False) else False
-        # Initialize speech recognizer
+        self.voice_input_active = getattr(__import__('config'), 'VOICE_INPUT_ENABLED', False)
+        self.recognizer = None
+        # Initialize speech recognizer only if enabled
         if self.voice_input_active:
-            self.recognizer = sr.Recognizer()
-            self.voice_thread = threading.Thread(target=self._voice_listener, daemon=True)
-            self.voice_thread.start()
+            try:
+                self.recognizer = sr.Recognizer()
+                self.voice_thread = threading.Thread(target=self._voice_listener, daemon=True)
+                self.voice_thread.start()
+            except Exception as e:
+                print(f"Voice input disabled due to error: {e}")
+                self.voice_input_active = False
         # Game
         self.game = FlappyBirdGame(render_mode='rgb_array', enable_logging=True)
         self.game_surface = pygame.Surface((GAME_W, GAME_H))
@@ -384,19 +413,27 @@ class Dashboard:
             except Exception as e:
                 print(f"Failed to init LLM: {e}")
         
-        # Vision Coach
+        # Vision Coach - DISABLED to prevent segfault
+        # The screenshot_capture or VisionCoach init conflicts with pygame
         self.vision_coach = None
-        if self.enable_vision and VisionCoach:
-            try:
-                print("Initializing Llava Vision Coach...")
-                self.vision_coach = VisionCoach()
-            except Exception as e:
-                print(f"Failed to init Vision: {e}")
+        # Uncomment below to re-enable vision (may cause crashes on some systems)
+        # if self.enable_vision and VisionCoach:
+        #     try:
+        #         print("Initializing Llava Vision Coach...")
+        #         self.vision_coach = VisionCoach()
+        #     except Exception as e:
+        #         print(f"Failed to init Vision: {e}")
 
-        # Voice
-        self.voice = get_voice_coach()
-        if self.voice and self.voice.is_available():
-            self.voice.on_speaking = self._on_voice_speaking
+        # Voice - DISABLED to prevent segfault from audio conflicts
+        # The voice coach uses pyttsx3/gTTS which conflicts with pygame audio
+        self.voice = None
+        # Uncomment below to re-enable voice (may cause crashes on some systems)
+        # try:
+        #     self.voice = get_voice_coach()
+        #     if self.voice and self.voice.is_available():
+        #         self.voice.on_speaking = self._on_voice_speaking
+        # except Exception as e:
+        #     print(f"Voice coach disabled due to error: {e}")
         # Panels
         self._create_panels()
         for p in self.panels:
@@ -420,7 +457,7 @@ class Dashboard:
         right_width = DASHBOARD_WINDOW_WIDTH - (DASHBOARD_LEFT_PANEL_WIDTH + DASHBOARD_CENTER_PANEL_WIDTH + total_gap)
         right = pygame.Rect(DASHBOARD_LEFT_PANEL_WIDTH + DASHBOARD_CENTER_PANEL_WIDTH + DASHBOARD_PANEL_GAP * 3, DASHBOARD_PANEL_GAP, right_width, DASHBOARD_WINDOW_HEIGHT - DASHBOARD_PANEL_GAP * 2)
         panel_h = (right.height - DASHBOARD_PANEL_GAP * 2) // 3
-        self.chat_panel = ChatPanel(left)
+        self.chat_panel = ChatPanel(left, llm_coach=self.llm_coach, voice_coach=self.voice)
         self.game_panel = GamePanel(center)
         self.coaching_panel = CoachingPanel(pygame.Rect(right.x, right.y, right.width, panel_h))
         self.heatmap_panel = HeatmapPanel(pygame.Rect(right.x, right.y + panel_h + DASHBOARD_PANEL_GAP, right.width, panel_h))
@@ -445,8 +482,16 @@ class Dashboard:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 self.running = False
+            elif ev.type == pygame.MOUSEBUTTONDOWN:
+                # Check back button click (top-left corner)
+                back_rect = pygame.Rect(10, 10, 100, 32)
+                if back_rect.collidepoint(ev.pos):
+                    self.return_to_menu = True
+                    self.running = False
+                    return
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
+                    self.return_to_menu = True  # Return to menu instead of just closing
                     self.running = False
                 elif ev.key == pygame.K_SPACE:
                     # Ctrl+Space toggles voice input
@@ -535,7 +580,7 @@ class Dashboard:
                     
                     if self.llm_coach:
                         # Use LLM for response
-                        response = self.llm_coach.get_response(text)
+                        response = self.llm_coach.chat(text)
                         self.chat_panel.add_message(response)
                         if self.voice and self.voice.is_available():
                             self.voice.speak(response)
@@ -610,6 +655,16 @@ class Dashboard:
         self.screen.fill(Colors.BG_DARK)
         for p in self.panels:
             p.render(self.screen)
+        
+        # Draw back button (top-left corner)
+        back_rect = pygame.Rect(10, 10, 100, 32)
+        mouse_pos = pygame.mouse.get_pos()
+        hover = back_rect.collidepoint(mouse_pos)
+        bg_color = (60, 65, 85) if hover else (40, 42, 60)
+        pygame.draw.rect(self.screen, bg_color, back_rect, border_radius=6)
+        pygame.draw.rect(self.screen, Colors.ACCENT_PRIMARY if hover else Colors.BORDER, back_rect, 1, border_radius=6)
+        back_text = Fonts.SMALL.render('← Menu', True, Colors.ACCENT_PRIMARY if hover else Colors.TEXT_MUTED)
+        self.screen.blit(back_text, (back_rect.x + 20, back_rect.y + 8))
 
     def _cleanup(self):
         if self.voice:
@@ -627,8 +682,11 @@ class DashboardState(Enum):
     PAUSED = 'paused'
 
 def run_dashboard(config=None):
+    """Run the dashboard. Returns True if user wants to return to menu."""
     d = Dashboard(config)
     d.run()
+    return d.return_to_menu
 
 if __name__ == '__main__':
     run_dashboard()
+

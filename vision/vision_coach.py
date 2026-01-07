@@ -37,7 +37,7 @@ class VisionCoach:
         """
         self.model = model
         self.client = get_client()
-        self.capture = get_capture()
+        self._capture = None  # Lazy init to avoid pygame conflicts
         self._available = None
         
     def is_available(self) -> bool:
