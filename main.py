@@ -33,14 +33,12 @@ def main():
             if config.get("mode") == "watch_ai":
                 from game.modes import watch_ai
                 print("Starting RL Mode...")
-                watch_ai()
-                return_to_menu = True  # Always return after RL mode
+                return_to_menu = watch_ai()
                 
             elif config.get("mode") == "train_ai":
                 from game.modes import train_agent_mode
                 print("Starting Learning Mode...")
-                train_agent_mode()
-                return_to_menu = True  # Always return after training
+                return_to_menu = train_agent_mode()
                 
             elif config.get("mode") == "scoreboard":
                 from ui.scoreboard import run_scoreboard
