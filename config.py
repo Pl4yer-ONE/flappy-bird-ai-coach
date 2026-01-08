@@ -188,3 +188,16 @@ SPEECH_DYNAMIC_RATIO = 2.0      # Dynamic adjustment ratio
 REWARD_ALIVE = 0.1         # Per frame survived
 REWARD_PASS_PIPE = 1.0     # Successfully passing a pipe
 REWARD_DEATH = -1.0        # Game over penalty
+
+# =============================================================================
+# RL Mode Settings
+# =============================================================================
+USE_GYMNASIUM = True       # Use flappy-bird-gymnasium for RL modes (recommended)
+RL_FPS_NORMAL = 30         # Normal playback speed
+RL_FPS_FAST = 0            # No delay - maximum speed
+RL_FPS_SLOW = 15           # Slow motion for detailed observation
+RL_DEFAULT_SPEED = "normal"  # Default speed mode
+
+# Pretrained model paths
+GYMNASIUM_MODEL_PATH = os.path.join(MODELS_DIR, "flappybird_gym.pt")
+BUILTIN_MODEL_PATH = os.path.join(MODELS_DIR, "flappybird.pt")

@@ -47,3 +47,23 @@ cartpole:
   save_interval: 100
   enable_double_dqn: false
   enable_dueling_dqn: true
+
+# Gymnasium FlappyBird - matches reference dqn_pytorch implementation
+flappybird_gym:
+  env_id: FlappyBird-v0
+  fc1_nodes: 512
+  replay_memory_size: 100000
+  mini_batch_size: 32
+  learning_rate_a: 0.0001
+  discount_factor_g: 0.99
+  network_sync_rate: 10
+  epsilon_init: 1.0
+  epsilon_decay: 0.99995
+  epsilon_min: 0.05
+  stop_on_reward: 100000
+  save_interval: 1000
+  enable_double_dqn: true
+  enable_dueling_dqn: true
+  env_make_params:
+    use_lidar: false
+

@@ -372,11 +372,14 @@ class DQNAgent:
         # Load state dict to check architecture
         state_dict = torch.load(path, map_location=device, weights_only=True)
         
-        # Auto-detect state dimension from fc1 layer weight shape
+        # Auto-detect state dimension and hidden dimension from fc1 layer weight shape
         if 'fc1.weight' in state_dict:
-            detected_state_dim = state_dict['fc1.weight'].shape[1]
-            print(f"Auto-detected state dimension: {detected_state_dim}")
+            fc1_weight = state_dict['fc1.weight']
+            detected_hidden_dim = fc1_weight.shape[0]
+            detected_state_dim = fc1_weight.shape[1]
+            print(f"Auto-detected: state_dim={detected_state_dim}, hidden_dim={detected_hidden_dim}")
             state_dim = detected_state_dim
+            self.fc1_nodes = detected_hidden_dim
         
         # Detect architecture from state dict keys
         has_dueling = 'fc_value.weight' in state_dict or 'value.weight' in state_dict

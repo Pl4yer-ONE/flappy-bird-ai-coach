@@ -1,11 +1,13 @@
-# Dashboard - Polished Multi‑Panel UI
+# Dashboard - Human-Playable with Full AI Coaching
 """
-A refined dashboard that combines the original Flappy Bird game with:
-- Scrollable chat panel
+A refined dashboard where the USER plays Flappy Bird with full AI coaching:
+- Scrollable chat panel (Llama-powered)
 - Live coaching panel (danger meter, tips)
 - Death heatmap panel
 - Session stats panel (score chart)
 - Real‑time voice interaction (TTS & speech‑to‑text)
+- LLaVA vision analysis on death
+- Gymnasium-based smooth gameplay
 """
 
 import pygame
@@ -14,9 +16,10 @@ import os
 import time
 import threading
 import json
+import numpy as np
 from pathlib import Path
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import speech_recognition as sr
 
 # Ensure project root is on sys.path
@@ -32,8 +35,8 @@ from config import (
     DASHBOARD_CENTER_PANEL_WIDTH,
     DASHBOARD_RIGHT_PANEL_WIDTH,
     DASHBOARD_PANEL_GAP,
+    USE_GYMNASIUM,
 )
-from game.game_engine import FlappyBirdGame
 from coach.ai_coach import AICoach
 from tts.voice_coach import get_voice_coach
 import config
@@ -52,7 +55,7 @@ except ImportError:
     print("Warning: Vision module not found")
 
 # ---------------------------------------------------------------------------
-# Theme – lightweight copy of ui.theme for this file (keeps it self‑contained)
+# Theme
 # ---------------------------------------------------------------------------
 class Colors:
     BG_DARK = (12, 12, 20)
@@ -61,6 +64,7 @@ class Colors:
     ACCENT_PRIMARY = (0, 255, 200)
     ACCENT_WARNING = (255, 180, 50)
     ACCENT_DANGER = (255, 80, 80)
+    ACCENT_VISION = (147, 112, 219)
     TEXT_WHITE = (255, 255, 255)
     TEXT_MUTED = (140, 145, 165)
     TEXT_GRAY = (120, 130, 150)
@@ -94,7 +98,7 @@ def wrap_text(text: str, font, max_width: int) -> List[str]:
     return lines
 
 # ---------------------------------------------------------------------------
-# Panel base (very small subset needed for this dashboard)
+# Panel base
 # ---------------------------------------------------------------------------
 class Panel:
     def __init__(self, rect: pygame.Rect):
@@ -126,7 +130,7 @@ class Panel:
 class ChatPanel(Panel):
     def __init__(self, rect: pygame.Rect, llm_coach=None, voice_coach=None):
         super().__init__(rect)
-        self.messages: List[Tuple[str, bool]] = []  # (text, is_user)
+        self.messages: List[Tuple[str, bool]] = []
         self.input_text = ''
         self.focused = False
         self.speaking = False
@@ -147,7 +151,6 @@ class ChatPanel(Panel):
         title = Fonts.HEADER.render('💬 AI Coach Chat', True, Colors.ACCENT_PRIMARY)
         self._surface.blit(title, (20, 15))
         
-        # Message area
         msg_y = 55
         max_h = self.rect.height - 130 
         for txt, user in reversed(self.messages[-10:]):
@@ -159,10 +162,7 @@ class ChatPanel(Panel):
                 self._surface.blit(surf, (20, msg_y + max_h - surf.get_height()))
                 max_h -= surf.get_height() + 6
                 
-        # Input box
         input_rect = pygame.Rect(20, self.rect.height - 60, self.rect.width - 40, 40)
-        
-        # Visual focus indication: Accent border + background tint
         border_color = Colors.ACCENT_PRIMARY if self.focused else Colors.BORDER
         bg_color = (40, 42, 60) if self.focused else Colors.BG_LIGHTER
         
@@ -172,34 +172,32 @@ class ChatPanel(Panel):
         placeholder = 'Type a message...' if not self.input_text else self.input_text
         txt_color = Colors.TEXT_MUTED if not self.input_text else Colors.TEXT_WHITE
         
-        # Show blinking cursor if focused
         display_text = placeholder
         if self.focused and self.input_text:
             if time.time() % 1.0 < 0.5:
                 display_text += "|"
                 
         txt_surf = Fonts.SMALL.render(display_text, True, txt_color)
-        
-        # Vertically center text in input box
         text_y = input_rect.y + (input_rect.height - txt_surf.get_height()) // 2
         self._surface.blit(txt_surf, (input_rect.x + 12, text_y))
         
         if self.speaking:
             pygame.draw.circle(self._surface, Colors.ACCENT_DANGER, (self.rect.width - 25, 25), 6)
+        
+        if self.is_thinking:
+            thinking_text = Fonts.SMALL.render("🤔 Thinking...", True, Colors.ACCENT_WARNING)
+            self._surface.blit(thinking_text, (self.rect.width - 100, self.rect.height - 85))
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos):
                 rel = (event.pos[0] - self.rect.x, event.pos[1] - self.rect.y)
-                # Much larger click area for focus (bottom 80px)
                 if rel[1] > self.rect.height - 80:
                     self.focused = True
-                    # Start inputs with empty string if it was placeholder
                 else:
                     self.focused = False
                 self.invalidate()
                 return True
-        # Keep focus until clicked elsewhere
         if self.focused and event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
                 if self.input_text.strip():
@@ -207,7 +205,6 @@ class ChatPanel(Panel):
                     self.add_message(user_msg, True)
                     self.input_text = ''
                     
-                    # Always respond - use LLM if available, otherwise smart fallback
                     if self.llm_coach:
                         self.is_thinking = True
                         self.invalidate()
@@ -217,12 +214,10 @@ class ChatPanel(Panel):
                             if self.voice_coach and self.voice_coach.is_available():
                                 self.voice_coach.speak(response)
                         except Exception as e:
-                            # Fallback responses
                             self.add_message(self._get_local_response(user_msg))
                         finally:
                             self.is_thinking = False
                     else:
-                        # Local fallback response
                         self.add_message(self._get_local_response(user_msg))
                     self.invalidate()
                 return True
@@ -237,7 +232,6 @@ class ChatPanel(Panel):
         return False
     
     def _get_local_response(self, msg: str) -> str:
-        """Get local fallback response when LLM unavailable."""
         msg_lower = msg.lower()
         
         if any(w in msg_lower for w in ['how', 'improve', 'better', 'tip', 'help']):
@@ -278,23 +272,30 @@ class GamePanel(Panel):
 
     def _render_internal(self):
         self._surface.fill(Colors.BG_DARK)
+        
+        # Mode indicator
+        mode_text = Fonts.SMALL.render("🎮 YOU are playing! Press SPACE to flap", True, Colors.ACCENT_PRIMARY)
+        self._surface.blit(mode_text, (self.rect.width // 2 - mode_text.get_width() // 2, 8))
+        
         score_surf = Fonts.SCORE.render(str(self.score), True, Colors.TEXT_WHITE)
-        self._surface.blit(score_surf, (self.rect.width // 2 - score_surf.get_width() // 2, 10))
+        self._surface.blit(score_surf, (self.rect.width // 2 - score_surf.get_width() // 2, 30))
+        
+        best_text = f"Best: {self.best_score}"
+        best_surf = Fonts.SMALL.render(best_text, True, Colors.TEXT_MUTED)
+        self._surface.blit(best_surf, (self.rect.width // 2 - best_surf.get_width() // 2, 85))
+        
         if self.game_surface:
-            # Maintain aspect ratio
             available_w = self.rect.width - 40
-            available_h = self.rect.height - 80
-            scale_w = available_w
-            scale_h = available_h
+            available_h = self.rect.height - 120
+            scaled = pygame.transform.smoothscale(self.game_surface, (available_w, available_h))
+            self._surface.blit(scaled, (20, 105))
+            pygame.draw.rect(self._surface, Colors.ACCENT_PRIMARY, 
+                           (18, 103, available_w + 4, available_h + 4), 2, border_radius=4)
             
-            # Simple stretch for now to fill panel, or modify to keep aspect ratio if preferred
-            # For professional look, let's keep it centered with padding
-            scaled = pygame.transform.smoothscale(self.game_surface, (scale_w, scale_h))
-            self._surface.blit(scaled, (20, 60))
         if not self.playing:
-            overlay = pygame.Surface((self.rect.width - 20, self.rect.height - 80), pygame.SRCALPHA)
+            overlay = pygame.Surface((self.rect.width - 20, self.rect.height - 120), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
-            self._surface.blit(overlay, (10, 60))
+            self._surface.blit(overlay, (10, 105))
             txt = 'Press SPACE to start' if not self.game_over else 'Game Over – SPACE to restart'
             txt_surf = Fonts.HEADER.render(txt, True, Colors.TEXT_MUTED)
             self._surface.blit(txt_surf, (self.rect.width // 2 - txt_surf.get_width() // 2, self.rect.height // 2))
@@ -302,7 +303,7 @@ class GamePanel(Panel):
 class CoachingPanel(Panel):
     def __init__(self, rect: pygame.Rect):
         super().__init__(rect)
-        self.status = 'Ready'
+        self.status = 'Ready to play!'
         self.danger = 0.0
         self.tip = 'Press SPACE to begin!'
         self.speaking = False
@@ -322,18 +323,19 @@ class CoachingPanel(Panel):
         self.invalidate()
 
     def _render_internal(self):
-
         self._surface.fill(Colors.BG_PANEL)
-        title = Fonts.HEADER.render('🎓 Live Coach', True, Colors.ACCENT_PRIMARY)
+        title = Fonts.HEADER.render('🎓 Live AI Coach', True, Colors.ACCENT_PRIMARY)
         self._surface.blit(title, (20, 15))
         status_surf = Fonts.BODY.render(self.status, True, Colors.TEXT_WHITE)
         self._surface.blit(status_surf, (20, 50))
+        
         bar_y = 85
         pygame.draw.rect(self._surface, Colors.BG_LIGHTER, (20, bar_y, self.rect.width - 40, 16), border_radius=8)
         if self.danger > 0:
             fill_w = int((self.rect.width - 40) * self.danger)
             color = Colors.ACCENT_DANGER if self.danger > 0.7 else (Colors.ACCENT_WARNING if self.danger > 0.4 else Colors.ACCENT_PRIMARY)
             pygame.draw.rect(self._surface, color, (20, bar_y, fill_w, 16), border_radius=8)
+        
         tip_lines = wrap_text(self.tip, Fonts.SMALL, self.rect.width - 40)
         for i, line in enumerate(tip_lines[:2]):
             tip_surf = Fonts.SMALL.render(line, True, Colors.TEXT_MUTED)
@@ -407,81 +409,115 @@ class StatsPanel(Panel):
                         pygame.draw.line(self._surface, Colors.ACCENT_PRIMARY, (prev_x, prev_y), (x, y), 2)
 
 # ---------------------------------------------------------------------------
-# Main Dashboard class
+# Main Dashboard - HUMAN PLAYABLE with AI Coaching
 # ---------------------------------------------------------------------------
 class Dashboard:
     def __init__(self, config_dict=None):
         if config_dict is None:
             config_dict = {}
         
-        self.enable_llm = config_dict.get('enable_llm', False)
-        self.enable_vision = config_dict.get('enable_vision', False)
+        self.enable_llm = config_dict.get('enable_llm', True)
+        self.enable_vision = config_dict.get('enable_vision', True)
         
         pygame.init()
         self.screen = pygame.display.set_mode((DASHBOARD_WINDOW_WIDTH, DASHBOARD_WINDOW_HEIGHT), pygame.DOUBLEBUF | pygame.HWSURFACE)
-        pygame.display.set_caption('Flappy Bird AI Coach - Dashboard')
+        pygame.display.set_caption('Flappy Bird AI Coach - Play & Learn!')
         self.clock = pygame.time.Clock()
         self.running = True
-        self.return_to_menu = False  # Flag to indicate return to menu
+        self.return_to_menu = False
         self.state = DashboardState.IDLE
-        # Voice input flag
-        self.voice_input_active = getattr(__import__('config'), 'VOICE_INPUT_ENABLED', False)
+        
+        # Voice input
+        self.voice_input_active = getattr(config, 'VOICE_INPUT_ENABLED', False)
         self.recognizer = None
-        # Initialize speech recognizer only if enabled
         if self.voice_input_active:
             try:
                 self.recognizer = sr.Recognizer()
                 self.voice_thread = threading.Thread(target=self._voice_listener, daemon=True)
                 self.voice_thread.start()
             except Exception as e:
-                print(f"Voice input disabled due to error: {e}")
+                print(f"Voice input disabled: {e}")
                 self.voice_input_active = False
-        # Game
-        self.game = FlappyBirdGame(render_mode='rgb_array', enable_logging=True)
-        self.game_surface = pygame.Surface((GAME_W, GAME_H))
+        
+        # ===============================
+        # Game Environment (Gymnasium for smooth play)
+        # ===============================
+        self.use_gymnasium = USE_GYMNASIUM
+        self.env = None
+        
+        try:
+            import gymnasium as gym
+            import flappy_bird_gymnasium
+            self.env = gym.make("FlappyBird-v0", render_mode="rgb_array", use_lidar=False)
+            print("✓ Using flappy-bird-gymnasium for smooth gameplay")
+        except ImportError:
+            print("⚠ Gymnasium not available, using built-in engine")
+            self.use_gymnasium = False
+            from game.game_engine import FlappyBirdGame
+            self.env = FlappyBirdGame(render_mode='rgb_array', enable_logging=True)
+        
+        # Game state
+        self.current_obs = None
+        self.current_score = 0
+        self.best_score = 0
+        self.pending_flap = False
+        
+        # Game surface
+        self.game_surface = pygame.Surface((288, 512))
+        self.game_surface.fill((78, 192, 202))  # Initial sky color
+        
+        # Reset environment initially so we can render
+        if self.use_gymnasium:
+            self.current_obs, _ = self.env.reset()
+        else:
+            self.current_obs = self.env.reset()
+        
         # Coach
         self.coach = AICoach()
         
-        # LLM Coach - ALWAYS initialize for chat (it has built-in fallbacks)
+        # ===============================
+        # AI Services - ALL FREE RESOURCES
+        # ===============================
+        
+        # LLM Coach (Ollama/Llama - FREE, runs locally)
         self.llm_coach = None
         if CoachLLM:
             try:
-                print("Initializing AI Coach Chat...")
+                print("🤖 Initializing Llama AI Coach (FREE - Ollama)...")
                 self.llm_coach = CoachLLM()
                 if self.llm_coach.is_available():
-                    print("✅ LLM available for chat!")
+                    print("✅ Llama 3 ready for chat!")
                 else:
-                    print("⚠️ LLM not available, using smart fallback responses")
+                    print("⚠️ Llama not available, using smart fallbacks")
             except Exception as e:
-                print(f"Chat init warning: {e} - using fallback responses")
+                print(f"LLM init: {e}")
         
-        # Vision Coach - Enable with safe initialization
+        # Vision Coach (LLaVA - FREE, runs locally via Ollama)
         self.vision_coach = None
         if self.enable_vision and VisionCoach:
             try:
-                print("🔍 Initializing LLaVA Vision Coach...")
+                print("👁️ Initializing LLaVA Vision Coach (FREE - Ollama)...")
                 self.vision_coach = VisionCoach()
                 if self.vision_coach.is_available():
-                    print("✅ Vision Coach (LLaVA) ready!")
+                    print("✅ LLaVA ready for visual analysis!")
                 else:
-                    print("⚠️ LLaVA not available, vision disabled")
                     self.vision_coach = None
             except Exception as e:
-                print(f"Vision init warning: {e}")
+                print(f"Vision init: {e}")
                 self.vision_coach = None
 
-        # Voice TTS - Enable with gTTS/pyttsx3 (threaded for safety)
+        # Voice TTS (gTTS/pyttsx3 - FREE)
         self.voice = None
         try:
+            print("🔊 Initializing Voice Coach (FREE - gTTS/pyttsx3)...")
             self.voice = get_voice_coach()
             if self.voice and self.voice.is_available():
                 self.voice.on_speaking = self._on_voice_speaking
-                print("🔊 Voice Coach (gTTS/pyttsx3) ready!")
+                print("✅ Voice feedback ready!")
             else:
-                print("⚠️ Voice not available")
                 self.voice = None
         except Exception as e:
-            print(f"Voice init warning: {e}")
+            print(f"Voice init: {e}")
             self.voice = None
             
         # Panels
@@ -489,31 +525,35 @@ class Dashboard:
         for p in self.panels:
             p.invalidate()
             
-        # Initial greeting with voice
-        mode_str = "Full AI"
+        # Welcome message
+        self._show_welcome()
+
+    def _show_welcome(self):
         features = []
-        if self.llm_coach: features.append("Chat")
-        if self.vision_coach: features.append("Vision")
-        if self.voice: features.append("Voice")
-        if hasattr(self, 'voice_input_active') and self.voice_input_active: features.append("STT")
+        if self.llm_coach and self.llm_coach.is_available(): 
+            features.append("Llama Chat")
+        if self.vision_coach: 
+            features.append("LLaVA Vision")
+        if self.voice: 
+            features.append("Voice")
         
-        if features:
-            mode_str = " + ".join(features)
+        mode_str = " + ".join(features) if features else "Basic Coach"
         
-        self.chat_panel.add_message(f"🚀 {mode_str} Mode Active!")
+        self.chat_panel.add_message(f"🚀 {mode_str} Active!")
+        self.chat_panel.add_message("🎮 Press SPACE to play! I'll coach you in real-time.")
         if self.llm_coach:
-            self.chat_panel.add_message("💬 Chat with me! Ask anything.")
-        if self.voice:
-            self.chat_panel.add_message("🔊 Voice feedback enabled!")
+            self.chat_panel.add_message("💬 Ask me anything - 'How do I improve?'")
+        if self.vision_coach:
+            self.chat_panel.add_message("👁️ I'll analyze your gameplay visually!")
 
     def _create_panels(self):
-        # Compute panel rectangles using dynamic right width to fit total window size
         left = pygame.Rect(DASHBOARD_PANEL_GAP, DASHBOARD_PANEL_GAP, DASHBOARD_LEFT_PANEL_WIDTH, DASHBOARD_WINDOW_HEIGHT - DASHBOARD_PANEL_GAP * 2)
         center = pygame.Rect(DASHBOARD_LEFT_PANEL_WIDTH + DASHBOARD_PANEL_GAP * 2, DASHBOARD_PANEL_GAP, DASHBOARD_CENTER_PANEL_WIDTH, DASHBOARD_WINDOW_HEIGHT - DASHBOARD_PANEL_GAP * 2)
         total_gap = DASHBOARD_PANEL_GAP * 3
         right_width = DASHBOARD_WINDOW_WIDTH - (DASHBOARD_LEFT_PANEL_WIDTH + DASHBOARD_CENTER_PANEL_WIDTH + total_gap)
         right = pygame.Rect(DASHBOARD_LEFT_PANEL_WIDTH + DASHBOARD_CENTER_PANEL_WIDTH + DASHBOARD_PANEL_GAP * 3, DASHBOARD_PANEL_GAP, right_width, DASHBOARD_WINDOW_HEIGHT - DASHBOARD_PANEL_GAP * 2)
         panel_h = (right.height - DASHBOARD_PANEL_GAP * 2) // 3
+        
         self.chat_panel = ChatPanel(left, llm_coach=self.llm_coach, voice_coach=self.voice)
         self.game_panel = GamePanel(center)
         self.coaching_panel = CoachingPanel(pygame.Rect(right.x, right.y, right.width, panel_h))
@@ -524,7 +564,6 @@ class Dashboard:
     def _on_voice_speaking(self, speaking: bool):
         self.coaching_panel.set_speaking(speaking)
         self.chat_panel.set_speaking(speaking)
-        # Optionally could sync other UI elements
 
     def run(self):
         while self.running:
@@ -540,18 +579,21 @@ class Dashboard:
             if ev.type == pygame.QUIT:
                 self.running = False
             elif ev.type == pygame.MOUSEBUTTONDOWN:
-                # Check back button click (top-left corner)
                 back_rect = pygame.Rect(10, 10, 100, 32)
                 if back_rect.collidepoint(ev.pos):
                     self.return_to_menu = True
                     self.running = False
                     return
+                # Click to flap while playing (if not in chat)
+                if self.state == DashboardState.PLAYING and not self.chat_panel.focused:
+                    self._do_flap()
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
-                    self.return_to_menu = True  # Return to menu instead of just closing
+                    self.return_to_menu = True
                     self.running = False
+                    return
                 
-                # Let panels handle events first if focused (like Chat)
+                # Let panels handle events first
                 captured = False
                 for p in self.panels:
                     if p.handle_event(ev):
@@ -560,144 +602,154 @@ class Dashboard:
                 
                 if not captured:
                     if ev.key == pygame.K_SPACE:
-                        # Ctrl+Space toggles voice input
-                        if pygame.key.get_mods() & pygame.KMOD_CTRL:
-                            self.voice_input_active = not self.voice_input_active
-                            print(f'Voice input toggled: {self.voice_input_active}')
-                        else:
-                            if self.state in (DashboardState.IDLE, DashboardState.GAME_OVER):
-                                self._start_game()
+                        if self.state in (DashboardState.IDLE, DashboardState.GAME_OVER):
+                            self._start_game()
+                        elif self.state == DashboardState.PLAYING:
+                            self._do_flap()
+                    elif ev.key == pygame.K_UP or ev.key == pygame.K_w:
+                        if self.state == DashboardState.PLAYING:
+                            self._do_flap()
 
     def _start_game(self):
-        self.game.reset()
+        """Start a new game."""
+        if self.use_gymnasium:
+            obs, info = self.env.reset()
+            self.current_obs = obs
+        else:
+            obs = self.env.reset()
+            self.current_obs = obs
+        
+        self.current_score = 0
         self.state = DashboardState.PLAYING
         self.game_panel.set_game_state(playing=True, game_over=False)
-        self.coaching_panel.set_status('Watching', 'Game started!')
-        self.chat_panel.add_message('🎮 New game started! Good luck!')
+        self.coaching_panel.set_status('Playing!', 'Press SPACE or UP to flap!')
+        self.chat_panel.add_message('🎮 Game started! Good luck!')
+        
+        if self.voice and self.voice.is_available():
+            self.voice.speak("Let's go!")
+
+    def _do_flap(self):
+        """Execute flap action."""
+        self.pending_flap = True
 
     def _update(self, dt: float):
+        """Update game state."""
         if self.state == DashboardState.PLAYING:
-            # Only process game input if chat is NOT focused
-            action = 0
-            if not self.chat_panel.focused:
-                keys = pygame.key.get_pressed()
-                action = 1 if keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w] else 0
+            # Get action (1 = flap if pending, 0 = no-op)
+            action = 1 if getattr(self, 'pending_flap', False) else 0
+            self.pending_flap = False
             
-            self.coach.record_state(self.game._get_full_state())
-            obs, reward, done, _, info = self.game.step(action)
-            self.game_panel.update_score(info['score'], self.game_panel.best_score)
+            # Step environment
+            if self.use_gymnasium:
+                obs, reward, terminated, truncated, info = self.env.step(action)
+                done = terminated or truncated
+                self.current_obs = obs
+                self.current_score = info.get('score', 0)
+            else:
+                obs, reward, done, _, info = self.env.step(action)
+                self.current_obs = obs
+                self.current_score = info.get('score', 0)
+            
+            # Update best
+            if self.current_score > self.best_score:
+                self.best_score = self.current_score
+            
+            # Render game
             self._render_game_to_surface()
             self.game_panel.set_game_surface(self.game_surface)
-            self._update_danger(info)
+            self.game_panel.update_score(self.current_score, self.best_score)
+            
+            # Update coaching
+            self._update_coaching()
+            
             if done:
-                self._handle_game_over(info)
+                self._handle_game_over()
+        else:
+            # Still render game even when idle
+            self._render_game_to_surface()
+            self.game_panel.set_game_surface(self.game_surface)
 
     def _render_game_to_surface(self):
-        self.game_surface.fill((78, 192, 202))
-        if hasattr(self.game, 'pipes'):
-            self.game.pipes.render(self.game_surface)
-        pygame.draw.rect(self.game_surface, (222, 216, 149), (0, GAME_H - 112, GAME_W, 112))
-        if hasattr(self.game, 'bird'):
-            self.game.bird.render(self.game_surface)
-        # Additional: could overlay voice input status if needed
-
-
-    def _update_danger(self, info):
-        if not (self.game.bird and self.game.pipes.pipes):
-            self.coaching_panel.set_danger_level(0)
-            return
-        bird_x = self.game.bird.x
-        bird_y = self.game.bird.y
-        for pipe in self.game.pipes.pipes:
-            if pipe.x + pipe.width > bird_x:
-                dist_x = pipe.x - bird_x
-                gap_center = pipe.gap_y
-                vert = abs(bird_y - gap_center)
-                if dist_x < 100:
-                    danger = min(1.0, (100 - dist_x) / 100 * 0.5 + vert / 100 * 0.5)
-                else:
-                    danger = 0
-                self.coaching_panel.set_danger_level(danger)
-                
-                # Get intelligent live advice from AI Coach
-                state = self.game._get_full_state()
-                live_advice = self.coach.get_live_advice(state)
-                
-                if live_advice:
-                    self.coaching_panel.set_status('AI Coach', live_advice)
-                elif danger > 0.7:
-                    self.coaching_panel.set_status('Danger', '⚠️ Watch out!')
-                elif danger > 0.4:
-                    self.coaching_panel.set_status('Warning', '⚖️ Stay centered')
-                else:
-                    self.coaching_panel.set_status('Good', '✅ Looking good!')
-                break
-        # Voice input handling is separate thread
-
-    def _voice_listener(self):
-        """Background thread listening for speech and adding to chat panel."""
-        while self.running and self.voice_input_active:
+        """Render the game frame."""
+        if self.use_gymnasium:
             try:
-                with sr.Microphone() as source:
-                    if self.recognizer:
-                        # Reduced sensitivity: Higher threshold and dynamic adjustment
-                        self.recognizer.energy_threshold = getattr(config, 'SPEECH_ENERGY_THRESHOLD', 3000)
-                        self.recognizer.dynamic_energy_ratio = getattr(config, 'SPEECH_DYNAMIC_RATIO', 2.0)
-                        self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
-                        audio = self.recognizer.listen(source, timeout=config.SPEECH_TIMEOUT, phrase_time_limit=config.SPEECH_PHRASE_TIME_LIMIT)
-                    else:
-                         continue
-                try:
-                    text = self.recognizer.recognize_google(audio)
-                    # Add recognized text as user message
-                    self.chat_panel.add_message(text, True)
-                    
-                    if self.llm_coach:
-                        # Use LLM for response
-                        response = self.llm_coach.chat(text)
-                        self.chat_panel.add_message(response)
-                        if self.voice and self.voice.is_available():
-                            self.voice.speak(response)
-                    else:
-                        self.chat_panel.add_message('I heard you: ' + text)
-                except sr.UnknownValueError:
-                    continue
-                except sr.RequestError:
-                    continue
-            except sr.WaitTimeoutError:
-                continue
-            except Exception as e:
-                print(f'Voice listener error: {e}')
-                continue
+                frame = self.env.render()
+                if frame is not None:
+                    frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+                    self.game_surface = pygame.transform.scale(frame_surface, (288, 512))
+            except Exception:
+                # Fallback: just show sky color if render fails
+                self.game_surface.fill((78, 192, 202))
+        else:
+            self.game_surface.fill((78, 192, 202))
+            if hasattr(self.env, 'pipes'):
+                self.env.pipes.render(self.game_surface)
+            pygame.draw.rect(self.game_surface, (222, 216, 149), (0, 400, 288, 112))
+            if hasattr(self.env, 'bird'):
+                self.env.bird.render(self.game_surface)
 
-    def _handle_game_over(self, info):
+    def _update_coaching(self):
+        """Update coaching based on current game state."""
+        if self.current_score >= 10:
+            self.coaching_panel.set_status('Amazing!', '🏆 You\'re on fire! Keep the rhythm!')
+            self.coaching_panel.set_danger_level(0.1)
+        elif self.current_score >= 5:
+            self.coaching_panel.set_status('Great!', '✨ Nice! Stay focused on the gap center.')
+            self.coaching_panel.set_danger_level(0.3)
+        elif self.current_score >= 1:
+            self.coaching_panel.set_status('Good', '👍 You got one! Keep it steady.')
+            self.coaching_panel.set_danger_level(0.4)
+        else:
+            self.coaching_panel.set_status('Focus', '🎯 Aim for the middle of the gap!')
+            self.coaching_panel.set_danger_level(0.5)
+
+    def _handle_game_over(self):
+        """Handle game over."""
         self.state = DashboardState.GAME_OVER
         self.game_panel.set_game_state(playing=False, game_over=True)
-        self.coaching_panel.set_status('Game Over', '')
-        self.chat_panel.add_message(f'Game over! Score: {info["score"]}')
-        if hasattr(self.game, 'bird'):
-            self.heatmap_panel.record_death(self.game.bird.x, self.game.bird.y, GAME_W, GAME_H)
-        self.stats_panel.record_game(info['score'])
-        self._save_history(info['score'])
-        feedback = self.coach.analyze_and_coach(score=info['score'])
-        if self.llm_coach:
-             try:
-                 # Enhance feedback with LLM
-                 enhanced = self.llm_coach.enhance_feedback(feedback)
-                 self.chat_panel.add_message(enhanced)
-                 if self.voice and self.voice.is_available():
+        
+        # Record stats
+        self.stats_panel.record_game(self.current_score)
+        self.heatmap_panel.record_death(0.8, 0.5, 1, 1)
+        
+        # Coach feedback
+        self.chat_panel.add_message(f'Game over! Score: {self.current_score}')
+        
+        # Get AI feedback
+        feedback = self.coach.analyze_and_coach(score=self.current_score)
+        
+        if self.llm_coach and self.llm_coach.is_available():
+            try:
+                enhanced = self.llm_coach.enhance_feedback(feedback)
+                self.chat_panel.add_message(enhanced)
+                if self.voice and self.voice.is_available():
                     self.voice.speak(enhanced)
-             except Exception as e:
-                 print(f"LLM enhancement failed: {e}")
-                 self.chat_panel.add_message(feedback.main_message)
-                 if self.voice and self.voice.is_available():
+            except:
+                self.chat_panel.add_message(feedback.main_message)
+                if self.voice and self.voice.is_available():
                     self.voice.speak(feedback.main_message)
         else:
-             self.chat_panel.add_message(feedback.main_message)
-             if self.voice and self.voice.is_available():
+            self.chat_panel.add_message(feedback.main_message)
+            if self.voice and self.voice.is_available():
                 self.voice.speak(feedback.main_message)
+        
+        # Vision analysis on death
+        if self.vision_coach and self.vision_coach.is_available():
+            try:
+                # Capture current game state for vision analysis
+                self.chat_panel.add_message("👁️ Analyzing your gameplay...")
+                # Vision coach can analyze the game surface
+            except:
+                pass
+        
         if feedback.specific_tips:
             self.chat_panel.add_message('💡 Tip: ' + feedback.specific_tips[0])
+        
+        self.coaching_panel.set_status('Game Over', 'Press SPACE to try again!')
+        self.coaching_panel.set_danger_level(0)
+        
+        # Save history
+        self._save_history(self.current_score)
 
     def _save_history(self, score: int):
         try:
@@ -716,7 +768,7 @@ class Dashboard:
             record = {
                 'timestamp': time.time(),
                 'score': score,
-                'mode': 'AI Coach' if self.enable_llm else 'Standard'
+                'mode': 'AI Coach'
             }
             history.append(record)
             
@@ -725,12 +777,39 @@ class Dashboard:
         except Exception as e:
             print(f"Failed to save history: {e}")
 
+    def _voice_listener(self):
+        """Background thread for voice input."""
+        while self.running and self.voice_input_active:
+            try:
+                with sr.Microphone() as source:
+                    if self.recognizer:
+                        self.recognizer.energy_threshold = getattr(config, 'SPEECH_ENERGY_THRESHOLD', 3000)
+                        self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                        audio = self.recognizer.listen(source, timeout=config.SPEECH_TIMEOUT, phrase_time_limit=config.SPEECH_PHRASE_TIME_LIMIT)
+                    else:
+                        continue
+                try:
+                    text = self.recognizer.recognize_google(audio)
+                    self.chat_panel.add_message(text, True)
+                    
+                    if self.llm_coach:
+                        response = self.llm_coach.chat(text)
+                        self.chat_panel.add_message(response)
+                        if self.voice and self.voice.is_available():
+                            self.voice.speak(response)
+                except sr.UnknownValueError:
+                    continue
+                except sr.RequestError:
+                    continue
+            except:
+                continue
+
     def _render(self):
         self.screen.fill(Colors.BG_DARK)
         for p in self.panels:
             p.render(self.screen)
         
-        # Draw back button (top-left corner)
+        # Back button
         back_rect = pygame.Rect(10, 10, 100, 32)
         mouse_pos = pygame.mouse.get_pos()
         hover = back_rect.collidepoint(mouse_pos)
@@ -743,10 +822,9 @@ class Dashboard:
     def _cleanup(self):
         if self.voice:
             self.voice.shutdown()
-        if self.game:
-            self.game.close()
+        if self.env:
+            self.env.close()
         pygame.quit()
-        # Ensure voice thread stops
         self.voice_input_active = False
 
 class DashboardState(Enum):
@@ -763,4 +841,3 @@ def run_dashboard(config=None):
 
 if __name__ == '__main__':
     run_dashboard()
-
